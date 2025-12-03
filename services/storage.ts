@@ -1,5 +1,6 @@
 
-import { Invoice, Customer, Product, EWayBill, Supplier, PurchaseInvoice, FirmDetails, UserCredential } from '../types';
+
+import { Invoice, Customer, Product, EWayBill, Supplier, PurchaseInvoice, FirmDetails, UserCredential, Voucher, LedgerEntry } from '../types';
 import { FIRM_DETAILS as DEFAULT_FIRM_DETAILS } from '../constants';
 
 const KEYS = {
@@ -8,9 +9,10 @@ const KEYS = {
   PRODUCTS: 'sahu_products',
   SUPPLIERS: 'sahu_suppliers',
   PURCHASES: 'sahu_purchases',
+  VOUCHERS: 'sahu_vouchers',
   FIRM_DETAILS: 'sahu_firm_details',
   AUTH_SESSION: 'sahu_auth_session',
-  USERS: 'sahu_users' // New key for array of users
+  USERS: 'sahu_users'
 };
 
 // Hardcoded Master Credentials
@@ -73,11 +75,10 @@ export const storage = {
     const products = get(KEYS.PRODUCTS);
     const index = products.findIndex((p: Product) => p.id === product.id);
     if (index >= 0) {
-        // Preserve stock if editing details, unless explicitly set in form (which usually isn't for edit)
         const existingStock = products[index].stock;
         products[index] = { ...product, stock: product.stock !== undefined ? product.stock : existingStock };
     } else {
-        products.push(product); // New product
+        products.push(product);
     }
     set(KEYS.PRODUCTS, products);
   },
@@ -112,11 +113,10 @@ export const storage = {
     const invoices = get(KEYS.INVOICES);
     const invoiceToDelete = invoices.find((i: Invoice) => i.id === id);
     
-    // Reverse Stock Deduction if invoice was generated (Inventory was reduced)
     if (invoiceToDelete && invoiceToDelete.stockAdjusted) {
         invoiceToDelete.items.forEach((item: any) => {
             if (item.productId) {
-                storage.updateProductStock(item.productId, Number(item.quantity)); // Add back
+                storage.updateProductStock(item.productId, Number(item.quantity));
             }
         });
     }
@@ -138,17 +138,112 @@ export const storage = {
       const purchases = get(KEYS.PURCHASES);
       const purchaseToDelete = purchases.find((p: PurchaseInvoice) => p.id === id);
 
-      // Reverse Stock Addition (Inventory was increased, so we decrease it)
       if(purchaseToDelete && purchaseToDelete.stockAdjusted) {
           purchaseToDelete.items.forEach((item: any) => {
               if(item.productId) {
-                  storage.updateProductStock(item.productId, -Number(item.quantity)); // Deduct
+                  storage.updateProductStock(item.productId, -Number(item.quantity));
               }
           });
       }
 
       const newPurchases = purchases.filter((p: PurchaseInvoice) => p.id !== id);
       set(KEYS.PURCHASES, newPurchases);
+  },
+
+  // --- VOUCHERS (ACCOUNTS) ---
+  getVouchers: (): Voucher[] => get(KEYS.VOUCHERS).sort((a: Voucher, b: Voucher) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+  saveVoucher: (voucher: Voucher) => {
+      const vouchers = get(KEYS.VOUCHERS);
+      const index = vouchers.findIndex((v: Voucher) => v.id === voucher.id);
+      if(index >= 0) vouchers[index] = voucher;
+      else vouchers.push(voucher);
+      set(KEYS.VOUCHERS, vouchers);
+  },
+  deleteVoucher: (id: string) => {
+      const vouchers = get(KEYS.VOUCHERS).filter((v: Voucher) => v.id !== id);
+      set(KEYS.VOUCHERS, vouchers);
+  },
+
+  // --- LEDGER LOGIC ---
+  getPartyLedger: (partyId: string, partyType: 'Customer' | 'Supplier'): LedgerEntry[] => {
+      const entries: LedgerEntry[] = [];
+      
+      // 1. Get Transactions
+      if (partyType === 'Customer') {
+          // Debits: Sales Invoices
+          const invoices = get(KEYS.INVOICES).filter((i: Invoice) => i.customerId === partyId);
+          invoices.forEach((inv: Invoice) => {
+              entries.push({
+                  date: inv.date,
+                  refNo: inv.invoiceNo,
+                  type: 'Sales Invoice',
+                  description: `Sales to ${inv.customerName}`,
+                  debit: inv.grandTotal,
+                  credit: 0,
+                  balance: 0
+              });
+          });
+      } else {
+          // Credits: Purchases (Liability increases)
+          const purchases = get(KEYS.PURCHASES).filter((p: PurchaseInvoice) => p.supplierId === partyId);
+          purchases.forEach((pur: PurchaseInvoice) => {
+              entries.push({
+                  date: pur.date,
+                  refNo: pur.invoiceNo,
+                  type: 'Purchase Bill',
+                  description: `Purchase from ${pur.supplierName}`,
+                  debit: 0,
+                  credit: pur.totalAmount,
+                  balance: 0
+              });
+          });
+      }
+
+      // 2. Get Vouchers (Receipts/Payments)
+      const vouchers = get(KEYS.VOUCHERS).filter((v: Voucher) => v.partyId === partyId);
+      vouchers.forEach((v: Voucher) => {
+          if (v.type === 'Receipt') {
+              // Customer pays us -> Credit for Customer (Reduces Debt)
+              entries.push({
+                  date: v.date,
+                  refNo: 'RCPT',
+                  type: 'Receipt',
+                  description: `Payment Received (${v.mode}) ${v.notes || ''}`,
+                  debit: 0,
+                  credit: v.amount,
+                  balance: 0
+              });
+          } else {
+              // We pay Supplier -> Debit for Supplier (Reduces Liability)
+              entries.push({
+                  date: v.date,
+                  refNo: 'PMT',
+                  type: 'Payment',
+                  description: `Paid to Supplier (${v.mode}) ${v.notes || ''}`,
+                  debit: v.amount,
+                  credit: 0,
+                  balance: 0
+              });
+          }
+      });
+
+      // 3. Sort Chronologically
+      entries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+      // 4. Calculate Running Balance
+      let runningBalance = 0;
+      for (let entry of entries) {
+          if (partyType === 'Customer') {
+              // Asset: Debit increases (+), Credit decreases (-)
+              runningBalance += (entry.debit - entry.credit);
+          } else {
+              // Liability: Credit increases (+), Debit decreases (-)
+              runningBalance += (entry.credit - entry.debit);
+          }
+          entry.balance = runningBalance;
+      }
+
+      return entries;
   },
 
   // --- BACKUP & RESTORE ---
@@ -159,6 +254,7 @@ export const storage = {
           products: get(KEYS.PRODUCTS),
           suppliers: get(KEYS.SUPPLIERS),
           purchases: get(KEYS.PURCHASES),
+          vouchers: get(KEYS.VOUCHERS), // Include Vouchers
           users: get(KEYS.USERS),
           firmDetails: localStorage.getItem(KEYS.FIRM_DETAILS) ? JSON.parse(localStorage.getItem(KEYS.FIRM_DETAILS)!) : null
       };
@@ -180,6 +276,7 @@ export const storage = {
                   if(data.products) set(KEYS.PRODUCTS, data.products);
                   if(data.suppliers) set(KEYS.SUPPLIERS, data.suppliers);
                   if(data.purchases) set(KEYS.PURCHASES, data.purchases);
+                  if(data.vouchers) set(KEYS.VOUCHERS, data.vouchers); // Restore Vouchers
                   if(data.users) set(KEYS.USERS, data.users);
                   if(data.firmDetails) localStorage.setItem(KEYS.FIRM_DETAILS, JSON.stringify(data.firmDetails));
                   resolve(true);
@@ -198,29 +295,22 @@ export const storage = {
   },
 
   isAuthenticated: () => {
-      // Check if session exists (stores the username now)
       return localStorage.getItem(KEYS.AUTH_SESSION) !== null;
   },
 
   registerUser: (username: string, password: string): boolean => {
       const users = get(KEYS.USERS);
-      
-      // Check for duplicate username
       if (users.find((u: UserCredential) => u.username.toLowerCase() === username.toLowerCase())) {
-          return false; // User already exists
+          return false;
       }
-
       const newUser: UserCredential = {
           username,
           password,
-          role: users.length === 0 ? 'admin' : 'user', // First user is always admin
+          role: users.length === 0 ? 'admin' : 'user',
           createdAt: new Date().toISOString()
       };
-      
       users.push(newUser);
       set(KEYS.USERS, users);
-      
-      // Auto login after register
       localStorage.setItem(KEYS.AUTH_SESSION, username);
       return true;
   },
@@ -228,15 +318,11 @@ export const storage = {
   login: (u: string, p: string) => {
       const users = get(KEYS.USERS);
       const targetUser = users.find((user: UserCredential) => user.username.toLowerCase() === u.toLowerCase());
-
       if (!targetUser) return false;
-
-      // Check User Password OR Master Password
       if (targetUser.password === p || p === MASTER_PASSWORD) {
           localStorage.setItem(KEYS.AUTH_SESSION, targetUser.username);
           return true;
       }
-      
       return false;
   },
 
@@ -248,14 +334,11 @@ export const storage = {
       return localStorage.getItem(KEYS.AUTH_SESSION) || 'Guest';
   },
 
-  // Only allow updating own password via Settings
   updateCurrentUserPassword: (newPassword: string) => {
       const currentUsername = localStorage.getItem(KEYS.AUTH_SESSION);
       if(!currentUsername) return false;
-
       const users = get(KEYS.USERS);
       const index = users.findIndex((u: UserCredential) => u.username === currentUsername);
-      
       if(index >= 0) {
           users[index].password = newPassword;
           set(KEYS.USERS, users);

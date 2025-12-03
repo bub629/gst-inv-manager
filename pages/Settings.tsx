@@ -12,11 +12,12 @@ interface SettingsProps {
 const Settings: React.FC<SettingsProps> = ({ onComplete }) => {
     const [details, setDetails] = useState<FirmDetails | null>(null);
     const [currentUsername, setCurrentUsername] = useState('');
-    const [newUsername, setNewUsername] = useState(''); // Added for username change
+    const [newUsername, setNewUsername] = useState('');
     const [newPassword, setNewPassword] = useState('');
     const [confirmNewPassword, setConfirmNewPassword] = useState('');
     const [backupFile, setBackupFile] = useState<File | null>(null);
     const [showSuccess, setShowSuccess] = useState(false);
+    const [successType, setSuccessType] = useState<'save' | 'restore'>('save');
 
     // Default empty structure to ensure no field is undefined
     const defaultDetails: FirmDetails = {
@@ -74,6 +75,7 @@ const Settings: React.FC<SettingsProps> = ({ onComplete }) => {
                 storage.saveFirmDetails(details);
                 
                 // Show Success Screen
+                setSuccessType('save');
                 setShowSuccess(true);
             }
         } catch (error) {
@@ -98,11 +100,7 @@ const Settings: React.FC<SettingsProps> = ({ onComplete }) => {
 
         // 1. Update Username if changed
         if (newUsername && newUsername !== currentUsername) {
-            // Since we don't have a direct 'updateUsername' method in the simplified storage,
-            // we will treat this as a requirement to re-register or we'd need to add that method.
-            // For now, let's assume simple password updates or basic credential management.
-            // NOTE: In a real app, changing username affects the ID. 
-            // Here we just skip username update to avoid breaking the session logic or add a simple check.
+            // Placeholder for username update logic
             alert("Username update requires re-login.");
             needsLogout = true;
         }
@@ -143,8 +141,8 @@ const Settings: React.FC<SettingsProps> = ({ onComplete }) => {
         }
         try {
             await storage.restoreData(backupFile);
-            alert("Data restored successfully! The app will now reload.");
-            window.location.reload();
+            setSuccessType('restore');
+            setShowSuccess(true);
         } catch(e) {
             alert("Failed to restore data. Please ensure the file is a valid backup JSON.");
         }
@@ -158,15 +156,19 @@ const Settings: React.FC<SettingsProps> = ({ onComplete }) => {
                     <CheckCircle className="w-24 h-24 text-green-600 dark:text-green-400" />
                 </div>
                 <h2 className="text-3xl font-bold text-slate-800 dark:text-white mb-2">
-                    Document Saved Successfully
+                    {successType === 'restore' ? "Data Restored Successfully" : "Document Saved Successfully"}
                 </h2>
-                <p className="text-slate-500 mb-8">Your firm details have been updated.</p>
+                <p className="text-slate-500 mb-8">
+                    {successType === 'restore' 
+                        ? "Your backup has been successfully imported." 
+                        : "Your firm details have been updated."}
+                </p>
                 <button 
                     type="button"
                     onClick={handleContinue}
                     className="px-8 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-semibold shadow-lg transition-transform hover:scale-105 flex items-center"
                 >
-                    Continue to Dashboard
+                    {successType === 'restore' ? "Return to Dashboard" : "Continue to Dashboard"}
                 </button>
             </div>
         );

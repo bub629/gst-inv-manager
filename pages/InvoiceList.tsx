@@ -1,10 +1,15 @@
+
 import React, { useState, useEffect } from 'react';
-import { Download, Trash2, Search, Eye } from 'lucide-react';
+import { Download, Trash2, Search, Eye, Edit } from 'lucide-react';
 import { storage } from '../services/storage';
 import { generateInvoicePDF } from '../services/pdfGenerator';
 import { Invoice } from '../types';
 
-const InvoiceList = () => {
+interface InvoiceListProps {
+    onEdit?: (id: string) => void;
+}
+
+const InvoiceList: React.FC<InvoiceListProps> = ({ onEdit }) => {
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [search, setSearch] = useState('');
 
@@ -65,6 +70,11 @@ const InvoiceList = () => {
                                     <button onClick={() => generateInvoicePDF(inv)} title="Download PDF" className="p-1 text-slate-500 hover:text-primary-600">
                                         <Download className="w-4 h-4" />
                                     </button>
+                                    {onEdit && (
+                                        <button onClick={() => onEdit(inv.id)} title="Edit Invoice" className="p-1 text-slate-500 hover:text-blue-600">
+                                            <Edit className="w-4 h-4" />
+                                        </button>
+                                    )}
                                     <button onClick={() => handleDelete(inv.id)} title="Delete" className="p-1 text-slate-500 hover:text-red-600">
                                         <Trash2 className="w-4 h-4" />
                                     </button>
@@ -72,7 +82,7 @@ const InvoiceList = () => {
                             </tr>
                         ))}
                          {filtered.length === 0 && (
-                            <tr><td colSpan={6} className="p-8 text-center text-slate-500">No invoices found.</td></tr>
+                            <tr><td colSpan={6} className="p-8 text-center text-slate-500">No invoices generated.</td></tr>
                         )}
                     </tbody>
                 </table>

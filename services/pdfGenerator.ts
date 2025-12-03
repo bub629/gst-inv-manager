@@ -1,6 +1,6 @@
 
 
-import { Invoice, FirmDetails, EWayBill, PurchaseInvoice } from '../types';
+import { Invoice, FirmDetails, EWayBill, PurchaseInvoice, LedgerEntry } from '../types';
 import { storage } from './storage'; // Import storage to get dynamic data
 
 const formatCurrency = (amount: number) => {
@@ -116,9 +116,6 @@ export const generateInvoicePDF = (invoice: Invoice) => {
   let finalY = (doc as any).lastAutoTable.finalY + 10;
 
   // SUMMARY - Fixed Layout Strategy
-  // Amount column ends at PageWidth - 14
-  // Label column ends at PageWidth - 55
-  // This leaves ~41 units for the amount, which is plenty for large numbers, preventing overlap.
   const valueEndX = pageWidth - 14;
   const labelEndX = pageWidth - 55;
 
@@ -341,3 +338,52 @@ export const generateDailyRegisterPDF = (date: string, invoices: Invoice[], purc
 
     doc.save(`Daily_Register_${date}.pdf`);
 }
+
+export const generateLedgerPDF = (partyName: string, partyType: string, entries: LedgerEntry[]) => {
+    if (!window.jspdf) return;
+    const firmDetails = storage.getFirmDetailsOrDefaults();
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.width;
+
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Ledger Statement: ${partyName}`, 14, 15);
+    
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text(firmDetails.name, 14, 22);
+    doc.text(`Generated on: ${new Date().toLocaleDateString()}`, pageWidth - 14, 15, { align: 'right' });
+
+    const rows = entries.map(e => [
+        e.date,
+        e.refNo,
+        e.type,
+        e.debit > 0 ? formatNumber(e.debit) : '-',
+        e.credit > 0 ? formatNumber(e.credit) : '-',
+        formatNumber(Math.abs(e.balance)) + (e.balance < 0 ? ' (Cr)' : ' (Dr)')
+    ]);
+
+    doc.autoTable({
+        head: [['Date', 'Ref No', 'Type', 'Debit', 'Credit', 'Balance']],
+        body: rows,
+        startY: 30,
+        theme: 'grid',
+        headStyles: { fillColor: [60, 60, 60] },
+        columnStyles: {
+            3: { halign: 'right' },
+            4: { halign: 'right' },
+            5: { halign: 'right', fontStyle: 'bold' }
+        }
+    });
+
+    // Final Balance Logic
+    const finalBalance = entries.length > 0 ? entries[entries.length - 1].balance : 0;
+    const finalY = (doc as any).lastAutoTable.finalY + 10;
+    
+    doc.setFont('helvetica', 'bold');
+    const balanceText = `Closing Balance: ${formatCurrency(Math.abs(finalBalance))} ${finalBalance < 0 ? '(Cr)' : '(Dr)'}`;
+    doc.text(balanceText, pageWidth - 14, finalY, { align: 'right' });
+
+    doc.save(`Ledger_${partyName}.pdf`);
+};

@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { 
   LayoutDashboard, 
@@ -10,13 +11,15 @@ import {
   X, 
   Sun, 
   Moon, 
-  Database,
   ShoppingCart,
   ClipboardList,
   Box,
   Settings as SettingsIcon,
   LogOut,
-  BookOpen
+  BookOpen,
+  ArrowLeft,
+  Wallet,
+  Code
 } from 'lucide-react';
 import { storage } from './services/storage';
 
@@ -32,233 +35,268 @@ import Inventory from './pages/Inventory';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
 import Reports from './pages/Reports';
+import VoucherEntry from './pages/VoucherEntry';
+import Ledger from './pages/Ledger';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [darkMode, setDarkMode] = useState(true);
+  const [darkMode, setDarkMode] = useState(true); // Default to Dark Mode
   const [editId, setEditId] = useState<string | null>(null);
-  const [firmName, setFirmName] = useState('GST & INVOICE MANAGER');
+  const [history, setHistory] = useState<string[]>([]);
+  const [firmName, setFirmName] = useState("GST & INVOICE MANAGER");
 
   useEffect(() => {
-    // Check auth status
-    const isAuth = storage.isAuthenticated();
-    setIsAuthenticated(isAuth);
-    if(isAuth) {
-        setCurrentUser(storage.getCurrentUsername());
-    }
-    
-    // Load Firm Name
-    const details = storage.getFirmDetails();
-    if(details && details.name && details.name !== "Your Firm Name") {
-        setFirmName(details.name);
-    } else {
-        setFirmName('GST & INVOICE MANAGER');
+    // Check Auth
+    if (storage.isAuthenticated()) {
+      setIsAuthenticated(true);
+      setCurrentUser(storage.getCurrentUsername());
     }
 
-    setIsLoading(false);
-
-    // Force dark mode initially
-    document.documentElement.classList.add('dark');
-  }, []);
-
-  useEffect(() => {
+    // Check Theme
     if (darkMode) {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
     }
+
+    // Load Firm Name
+    const details = storage.getFirmDetails();
+    if(details && details.name) {
+        setFirmName(details.name);
+    }
   }, [darkMode]);
 
-  const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
-
-  const handleLoginSuccess = () => {
-      setIsAuthenticated(true);
-      setCurrentUser(storage.getCurrentUsername());
-      // Refresh firm name on login in case it changed
-      const details = storage.getFirmDetails();
-      if(details && details.name && details.name !== "Your Firm Name") {
-          setFirmName(details.name);
-      } else {
-          setFirmName('GST & INVOICE MANAGER');
-      }
+  const handleLogin = () => {
+    setIsAuthenticated(true);
+    setCurrentUser(storage.getCurrentUsername());
   };
 
   const handleLogout = () => {
-      storage.logout();
-      setIsAuthenticated(false);
-      setCurrentUser('');
+    storage.logout();
+    setIsAuthenticated(false);
+    setActiveTab('dashboard');
+    setHistory([]);
   };
 
-  const handleEditInvoice = (id: string) => {
-      setEditId(id);
-      setActiveTab('create-invoice');
+  const changeTab = (tab: string, id: string | null = null) => {
+    setHistory(prev => [...prev, activeTab]);
+    setActiveTab(tab);
+    setEditId(id);
+    setSidebarOpen(false); // Close sidebar on mobile
   };
 
-  const handleEditPurchase = (id: string) => {
-      setEditId(id);
-      setActiveTab('purchase-entry');
+  const handleBack = () => {
+      setHistory(prev => {
+          const newHistory = [...prev];
+          const lastTab = newHistory.pop();
+          if(lastTab) {
+              setActiveTab(lastTab);
+              setEditId(null); // Reset edit state on back
+          }
+          return newHistory;
+      });
   };
 
-  // Function to handle completion of settings (Save -> Continue)
+  // Callback for Settings page to refresh app state without reload
   const handleSettingsComplete = () => {
-      // 1. Refresh Firm Name immediately from storage
       const details = storage.getFirmDetails();
-      if(details && details.name && details.name !== "Your Firm Name") {
+      if(details && details.name) {
           setFirmName(details.name);
       }
-      // 2. Switch to Dashboard
       setActiveTab('dashboard');
+      setHistory([]); // Reset history for a fresh start
   };
 
-  // Reset editId when switching to list or other tabs
-  const changeTab = (tab: string) => {
-      if(tab !== 'create-invoice' && tab !== 'purchase-entry') {
-          setEditId(null);
-      }
-      setActiveTab(tab);
-      if (window.innerWidth < 768) setSidebarOpen(false);
+  const toggleTheme = () => setDarkMode(!darkMode);
+
+  if (!isAuthenticated) {
+    return <Login onLogin={handleLogin} />;
   }
 
-  const NavItem = ({ id, icon: Icon, label }: { id: string; icon: any; label: string }) => (
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'dashboard': return <Dashboard changeTab={changeTab} />;
+      case 'create-invoice': return <InvoiceGenerator onSave={() => changeTab('invoice-list')} editId={editId} />;
+      case 'invoice-list': return <InvoiceList onEdit={(id) => changeTab('create-invoice', id)} />;
+      case 'eway-bill': return <EWayBillGenerator />;
+      case 'customers': return <Masters type="customers" />;
+      case 'suppliers': return <Masters type="suppliers" />;
+      case 'products': return <Masters type="products" />;
+      case 'purchase-entry': return <PurchaseEntry onSave={() => changeTab('purchase-list')} editId={editId} />;
+      case 'purchase-list': return <PurchaseList onEdit={(id) => changeTab('purchase-entry', id)} />;
+      case 'inventory': return <Inventory />;
+      case 'voucher-entry': return <VoucherEntry onSave={() => changeTab('ledger')} />;
+      case 'ledger': return <Ledger />;
+      case 'reports': return <Reports />;
+      case 'settings': return <Settings onComplete={handleSettingsComplete} />;
+      default: return <Dashboard changeTab={changeTab} />;
+    }
+  };
+
+  // Nav Item Component
+  const NavItem = ({ id, icon: Icon, label }: any) => (
     <button
       onClick={() => changeTab(id)}
-      className={`flex items-center w-full px-4 py-2.5 text-sm font-medium transition-all duration-200 rounded-lg mb-1 ${
-        activeTab === id
-          ? 'bg-primary-600/20 text-primary-400 border border-primary-600/30'
+      className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
+        activeTab === id 
+          ? 'bg-primary-600/20 text-primary-500 border-r-2 border-primary-500 rounded-r-none' 
           : 'text-slate-400 hover:bg-white/5 hover:text-white'
       }`}
     >
-      <Icon className="w-4 h-4 mr-3" />
-      {label}
+      <Icon className="w-5 h-5" />
+      <span className="font-medium">{label}</span>
     </button>
   );
 
-  const SectionLabel = ({ label }: { label: string }) => (
-    <div className="px-4 py-2 mt-4 mb-1 text-xs font-bold text-slate-500 uppercase tracking-wider">
-      {label}
-    </div>
+  const NavGroup = ({ title, children }: any) => (
+      <div className="mb-4">
+          <h3 className="px-4 text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{title}</h3>
+          <div className="space-y-1">
+              {children}
+          </div>
+      </div>
   );
 
-  if (isLoading) return <div className="flex h-screen items-center justify-center bg-black text-white">Loading...</div>;
-
-  if (!isAuthenticated) {
-      return <Login onLogin={handleLoginSuccess} />;
-  }
-
   return (
-    <div className="flex h-screen overflow-hidden bg-transparent">
+    <div className="flex h-screen overflow-hidden">
       
-      {/* Mobile Sidebar Overlay */}
+      {/* Sidebar Backdrop */}
       {sidebarOpen && (
         <div 
-          className="fixed inset-0 z-20 bg-black/80 backdrop-blur-sm md:hidden"
-          onClick={toggleSidebar}
-        ></div>
+          className="fixed inset-0 bg-black/60 z-20 lg:hidden backdrop-blur-sm"
+          onClick={() => setSidebarOpen(false)}
+        />
       )}
 
       {/* Sidebar */}
-      <aside 
-        className={`fixed inset-y-0 left-0 z-30 w-64 bg-black/40 backdrop-blur-xl border-r border-white/10 shadow-2xl transform transition-transform duration-300 md:relative md:translate-x-0 ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
-      >
-        <div className="flex items-center justify-between h-16 px-6 border-b border-white/10">
-          <span className="text-xl font-bold bg-gradient-to-r from-primary-400 to-primary-600 bg-clip-text text-transparent truncate" title={firmName}>
-            {firmName}
-          </span>
-          <button onClick={toggleSidebar} className="md:hidden text-slate-400 hover:text-white">
+      <aside className={`
+        fixed lg:static inset-y-0 left-0 z-30 w-64 transform transition-transform duration-300 ease-in-out
+        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+        bg-black/40 backdrop-blur-md border-r border-white/10 flex flex-col
+      `}>
+        <div className="p-6 flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <div className="p-2 bg-primary-600 rounded-lg">
+                <FileText className="w-5 h-5 text-white" />
+            </div>
+            <span className="text-lg font-bold text-white truncate max-w-[140px]" title={firmName}>
+                {firmName}
+            </span>
+          </div>
+          <button onClick={() => setSidebarOpen(false)} className="lg:hidden text-slate-400">
             <X className="w-6 h-6" />
           </button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-          <NavItem id="dashboard" icon={LayoutDashboard} label="Dashboard" />
+        <nav className="flex-1 overflow-y-auto py-4 px-2 custom-scrollbar">
+          <NavItem id="dashboard" icon={LayoutDashboard} label="Overview" />
           
-          <SectionLabel label="Sales" />
-          <NavItem id="create-invoice" icon={FileText} label="New Invoice" />
-          <NavItem id="invoice-list" icon={ClipboardList} label="Invoice History" />
-          <NavItem id="eway-bill" icon={Truck} label="E-Way Bill" />
-          <NavItem id="customers" icon={Users} label="Customers" />
+          <div className="my-4 border-t border-white/10"></div>
 
-          <SectionLabel label="Purchase" />
-          <NavItem id="purchase-entry" icon={ShoppingCart} label="Purchase Entry" />
-          <NavItem id="purchase-list" icon={ClipboardList} label="Purchase History" />
-          <NavItem id="suppliers" icon={Users} label="Suppliers" />
+          <NavGroup title="Sales">
+            <NavItem id="create-invoice" icon={FileText} label="New Invoice" />
+            <NavItem id="invoice-list" icon={ClipboardList} label="Invoice History" />
+            <NavItem id="eway-bill" icon={Truck} label="E-Way Bill" />
+            <NavItem id="customers" icon={Users} label="Customers" />
+          </NavGroup>
 
-          <SectionLabel label="Inventory" />
-          <NavItem id="inventory" icon={Box} label="Stock Status" />
-          <NavItem id="products" icon={Package} label="Product Master" />
-          <NavItem id="reports" icon={BookOpen} label="Daily Reports" />
+          <NavGroup title="Purchase">
+             <NavItem id="purchase-entry" icon={ShoppingCart} label="Purchase Entry" />
+             <NavItem id="purchase-list" icon={ClipboardList} label="Purchase History" />
+             <NavItem id="suppliers" icon={Users} label="Suppliers" />
+          </NavGroup>
 
-          <SectionLabel label="System" />
+          <NavGroup title="Accounts">
+             <NavItem id="voucher-entry" icon={Wallet} label="Voucher Entry" />
+             <NavItem id="ledger" icon={BookOpen} label="Ledger Book" />
+          </NavGroup>
+
+          <NavGroup title="Inventory">
+             <NavItem id="inventory" icon={Box} label="Stock Status" />
+             <NavItem id="products" icon={Package} label="Product Master" />
+          </NavGroup>
+
+          <div className="my-4 border-t border-white/10"></div>
+
+          <NavItem id="reports" icon={BookOpen} label="Reports" />
           <NavItem id="settings" icon={SettingsIcon} label="Settings" />
         </nav>
 
-        <div className="p-4 border-t border-white/10 bg-black/20 space-y-2">
-           <button 
-             onClick={() => storage.backupData()}
-             className="flex items-center w-full px-4 py-2 text-sm text-slate-300 hover:text-primary-400 hover:bg-white/5 border border-white/10 rounded transition-colors"
-           >
-             <Database className="w-4 h-4 mr-2" /> Backup Data
-           </button>
+        <div className="p-4 border-t border-white/10 bg-black/20">
+            <div className="flex items-center justify-between mb-4">
+                 <div className="flex items-center space-x-3">
+                    <div className="w-8 h-8 rounded-full bg-primary-900/50 flex items-center justify-center text-primary-400 font-bold border border-primary-500/30">
+                        {currentUser.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                        <p className="text-sm font-medium text-white">{currentUser}</p>
+                        <p className="text-xs text-slate-400">Admin</p>
+                    </div>
+                </div>
+            </div>
+            <button 
+                onClick={handleLogout}
+                className="w-full flex items-center justify-center space-x-2 p-2 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors text-sm"
+            >
+                <LogOut className="w-4 h-4" />
+                <span>Sign Out</span>
+            </button>
         </div>
       </aside>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden relative">
-        {/* Top Header */}
-        <header className="flex items-center justify-between h-16 px-6 bg-black/40 backdrop-blur-xl border-b border-white/10 z-10">
-          <button onClick={toggleSidebar} className="p-2 -ml-2 text-slate-400 hover:text-white md:hidden">
-            <Menu className="w-6 h-6" />
-          </button>
-          
-          <div className="flex items-center gap-4 ml-auto">
-             <button
-              onClick={() => setDarkMode(!darkMode)}
-              className="p-2 rounded-full text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
-            >
+      <div className="flex-1 flex flex-col h-screen overflow-hidden relative">
+        {/* Header */}
+        <header className="h-16 bg-black/20 backdrop-blur-md border-b border-white/10 flex items-center justify-between px-6 z-10 flex-shrink-0">
+          <div className="flex items-center">
+            <button onClick={() => setSidebarOpen(true)} className="lg:hidden text-slate-300 mr-4">
+              <Menu className="w-6 h-6" />
+            </button>
+            
+            {/* Back Button Logic - Only show if not on dashboard */}
+            {activeTab !== 'dashboard' && history.length > 0 && (
+                <button 
+                    onClick={handleBack} 
+                    className="mr-4 p-2 rounded-full hover:bg-white/10 text-slate-300 transition-colors"
+                    title="Go Back"
+                >
+                    <ArrowLeft className="w-5 h-5" />
+                </button>
+            )}
+
+            <h2 className="text-lg font-semibold text-slate-200 capitalize hidden sm:block">
+                {activeTab.replace('-', ' ')}
+            </h2>
+          </div>
+
+          <div className="flex items-center space-x-4">
+            <button onClick={toggleTheme} className="p-2 rounded-full text-slate-400 hover:text-white hover:bg-white/10 transition-colors">
               {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
             </button>
-            <div className="flex items-center gap-2 pl-4 border-l border-white/10">
-              <div className="w-8 h-8 rounded-full bg-primary-900/50 border border-primary-500/30 flex items-center justify-center text-primary-400 font-bold uppercase">
-                {currentUser.charAt(0)}
-              </div>
-              <span className="text-sm font-medium hidden sm:block text-slate-200">{currentUser}</span>
-              <button onClick={handleLogout} title="Logout" className="ml-2 text-slate-400 hover:text-red-400">
-                 <LogOut className="w-5 h-5" />
-              </button>
-            </div>
           </div>
         </header>
 
-        {/* Scrollable Page Content */}
-        <main className="flex-1 overflow-auto p-4 md:p-6 text-slate-100">
-          {activeTab === 'dashboard' && <Dashboard changeTab={changeTab} />}
+        {/* Scrollable Content Area */}
+        <main className="flex-1 overflow-auto p-4 lg:p-8 custom-scrollbar relative flex flex-col">
+          <div className="max-w-7xl mx-auto w-full flex-1">
+             {renderContent()}
+          </div>
           
-          {/* Sales */}
-          {activeTab === 'create-invoice' && <InvoiceGenerator onSave={() => changeTab('invoice-list')} editId={editId} />}
-          {activeTab === 'invoice-list' && (
-              <InvoiceList /> 
-          )}
-          {activeTab === 'eway-bill' && <EWayBillGenerator />}
-          {activeTab === 'customers' && <Masters type="customers" />}
-          
-          {/* Purchase */}
-          {activeTab === 'purchase-entry' && <PurchaseEntry onSave={() => changeTab('purchase-list')} editId={editId} />}
-          {activeTab === 'purchase-list' && <PurchaseList />}
-          {activeTab === 'suppliers' && <Masters type="suppliers" />}
-
-          {/* Inventory */}
-          {activeTab === 'inventory' && <Inventory />}
-          {activeTab === 'products' && <Masters type="products" />}
-          {activeTab === 'reports' && <Reports />}
-          
-          {/* System */}
-          {activeTab === 'settings' && <Settings onComplete={handleSettingsComplete} />}
+          {/* Professional Footer */}
+          <footer className="mt-8 pt-6 pb-2 text-center border-t border-white/10">
+              <div className="flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 text-sm">
+                  <div className="flex items-center gap-2 mb-1">
+                      <Code className="w-4 h-4 text-primary-500" />
+                      <span>Developed by <span className="text-slate-700 dark:text-slate-200 font-semibold hover:text-primary-500 transition-colors">Binod Kumar Sahoo</span></span>
+                  </div>
+                  <p className="text-xs text-slate-400 dark:text-slate-500 font-mono">
+                      Mob-9658618291
+                  </p>
+              </div>
+          </footer>
         </main>
       </div>
     </div>

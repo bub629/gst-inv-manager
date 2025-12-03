@@ -1,9 +1,14 @@
+
 import React, { useState, useEffect } from 'react';
-import { Trash2, Search } from 'lucide-react';
+import { Trash2, Search, Edit } from 'lucide-react';
 import { storage } from '../services/storage';
 import { PurchaseInvoice } from '../types';
 
-const PurchaseList = () => {
+interface PurchaseListProps {
+    onEdit?: (id: string) => void;
+}
+
+const PurchaseList: React.FC<PurchaseListProps> = ({ onEdit }) => {
     const [purchases, setPurchases] = useState<PurchaseInvoice[]>([]);
     const [search, setSearch] = useState('');
 
@@ -58,7 +63,12 @@ const PurchaseList = () => {
                                 <td className="px-6 py-4 text-sm">{purchase.supplierName}</td>
                                 <td className="px-6 py-4 text-right text-sm">{purchase.items.length}</td>
                                 <td className="px-6 py-4 text-right font-semibold text-sm">₹{purchase.totalAmount.toLocaleString('en-IN')}</td>
-                                <td className="px-6 py-4 text-right">
+                                <td className="px-6 py-4 text-right flex justify-end gap-2">
+                                    {onEdit && (
+                                        <button onClick={() => onEdit(purchase.id)} title="Edit Purchase" className="p-1 text-slate-500 hover:text-blue-600">
+                                            <Edit className="w-4 h-4" />
+                                        </button>
+                                    )}
                                     <button onClick={() => handleDelete(purchase.id)} title="Delete" className="p-1 text-slate-500 hover:text-red-600">
                                         <Trash2 className="w-4 h-4" />
                                     </button>

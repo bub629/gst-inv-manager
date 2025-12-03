@@ -111,6 +111,29 @@ export interface PurchaseInvoice {
   stockAdjusted?: boolean;
 }
 
+export interface Voucher {
+    id: string;
+    date: string;
+    type: 'Receipt' | 'Payment'; // Receipt = From Customer, Payment = To Supplier
+    partyId: string;
+    partyName: string;
+    partyType: 'Customer' | 'Supplier';
+    amount: number;
+    mode: 'Cash' | 'Bank' | 'UPI' | 'Cheque';
+    referenceNo?: string; // Cheque No / UPI Ref
+    notes?: string;
+}
+
+export interface LedgerEntry {
+    date: string;
+    refNo: string;
+    type: string; // Invoice, Purchase, Receipt, Payment
+    description: string;
+    debit: number;
+    credit: number;
+    balance: number;
+}
+
 export interface EWayBill {
   id: string;
   invoiceId?: string;
