@@ -1,11 +1,19 @@
+
 import { Invoice, FirmDetails, EWayBill, PurchaseInvoice } from '../types';
-import { FIRM_DETAILS } from '../constants';
+import { storage } from './storage'; // Import storage to get dynamic data
 
 const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',
     currency: 'INR',
     minimumFractionDigits: 2
+  }).format(amount).replace('₹', 'Rs. '); // Replace symbol for better PDF compatibility
+};
+
+const formatNumber = (amount: number) => {
+  return new Intl.NumberFormat('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
   }).format(amount);
 };
 
@@ -14,6 +22,9 @@ export const generateInvoicePDF = (invoice: Invoice) => {
     alert("PDF library not loaded yet. Please try again.");
     return;
   }
+
+  // CRITICAL FIX: Fetch latest details from storage
+  const firmDetails = storage.getFirmDetailsOrDefaults();
 
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
@@ -37,10 +48,10 @@ export const generateInvoicePDF = (invoice: Invoice) => {
   centerText("TAX INVOICE", 15, 16, 'helvetica', 'bold');
   
   doc.setTextColor(...textColor);
-  centerText(FIRM_DETAILS.name, 25, 14, 'helvetica', 'bold');
-  centerText(FIRM_DETAILS.address, 31, 10);
-  centerText(`${FIRM_DETAILS.city}, ${FIRM_DETAILS.state} - ${FIRM_DETAILS.pincode}`, 36, 10);
-  centerText(`GSTIN: ${FIRM_DETAILS.gstin} | Contact: ${FIRM_DETAILS.contact}`, 41, 10);
+  centerText(firmDetails.name, 25, 14, 'helvetica', 'bold');
+  centerText(firmDetails.address, 31, 10);
+  centerText(`${firmDetails.city}, ${firmDetails.state} - ${firmDetails.pincode}`, 36, 10);
+  centerText(`GSTIN: ${firmDetails.gstin} | Contact: ${firmDetails.contact}`, 41, 10);
 
   // Line
   doc.setDrawColor(200, 200, 200);
@@ -104,13 +115,26 @@ export const generateInvoicePDF = (invoice: Invoice) => {
   let finalY = (doc as any).lastAutoTable.finalY + 10;
 
   // SUMMARY
-  const summaryX = pageWidth - 90;
-  const valX = pageWidth - 14;
+  const rightMargin = 14;
+  const valueEndX = pageWidth - rightMargin;
 
+  // Dynamic Row Adding with Auto-Calculation of Position
   const addSummaryRow = (label: string, value: string, bold = false) => {
     doc.setFont('helvetica', bold ? 'bold' : 'normal');
-    doc.text(label, summaryX, finalY);
-    doc.text(value, valX, finalY, { align: 'right' });
+    
+    // 1. Draw Value first (Right Aligned)
+    doc.text(value, valueEndX, finalY, { align: 'right' });
+    
+    // 2. Calculate Value Width to position Label correctly
+    const fontSize = doc.getFontSize();
+    const valueWidth = doc.getStringUnitWidth(value) * fontSize / doc.internal.scaleFactor;
+    
+    // 3. Position Label 5 units to the left of the Value's start position
+    const labelX = valueEndX - valueWidth - 5;
+    
+    // 4. Draw Label (Right Aligned relative to the calculated gap)
+    doc.text(label, labelX, finalY, { align: 'right' });
+    
     finalY += 6;
   };
 
@@ -132,11 +156,14 @@ export const generateInvoicePDF = (invoice: Invoice) => {
   addSummaryRow("Round Off:", formatCurrency(invoice.roundOff));
   
   doc.setDrawColor(200, 200, 200);
-  doc.line(summaryX - 5, finalY - 4, pageWidth - 10, finalY - 4);
+  doc.line(pageWidth - 80, finalY - 4, pageWidth - 10, finalY - 4);
   
   doc.setFontSize(12);
   doc.setTextColor(...primaryColor);
-  addSummaryRow("Grand Total:", formatCurrency(invoice.grandTotal), true);
+  
+  // GRAND TOTAL - No 'Rs' prefix, just number, dynamic positioning
+  addSummaryRow("Grand Total:", formatNumber(invoice.grandTotal), true);
+  
   doc.setTextColor(...textColor);
 
   // Amount in Words
@@ -151,19 +178,23 @@ export const generateInvoicePDF = (invoice: Invoice) => {
   doc.text("Bank Details:", 14, bankY);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
-  doc.text(`Bank Name: ${FIRM_DETAILS.bankName}`, 14, bankY + 5);
-  doc.text(`A/C No: ${FIRM_DETAILS.accountNo}`, 14, bankY + 10);
-  doc.text(`IFSC: ${FIRM_DETAILS.ifsc}`, 14, bankY + 15);
+  doc.text(`Bank Name: ${firmDetails.bankName || '-'}`, 14, bankY + 5);
+  doc.text(`A/C No: ${firmDetails.accountNo || '-'}`, 14, bankY + 10);
+  doc.text(`IFSC: ${firmDetails.ifsc || '-'}`, 14, bankY + 15);
 
   // Signature
-  doc.text(`For ${FIRM_DETAILS.name}`, pageWidth - 14, bankY, { align: 'right' });
+  doc.text(`For ${firmDetails.name}`, pageWidth - 14, bankY, { align: 'right' });
   doc.text("Authorized Signatory", pageWidth - 14, bankY + 25, { align: 'right' });
 
   doc.save(`Invoice_${invoice.invoiceNo}.pdf`);
 };
 
-export const generateEWayBillPDF = (bill: EWayBill, firmDetails: FirmDetails) => {
+export const generateEWayBillPDF = (bill: EWayBill, passedFirmDetails?: FirmDetails) => {
      if (!window.jspdf) return;
+    
+    // Fetch latest details if not passed
+    const firmDetails = passedFirmDetails || storage.getFirmDetailsOrDefaults();
+
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
     
@@ -226,6 +257,9 @@ export const generateEWayBillPDF = (bill: EWayBill, firmDetails: FirmDetails) =>
 
 export const generateDailyRegisterPDF = (date: string, invoices: Invoice[], purchases: PurchaseInvoice[]) => {
     if (!window.jspdf) return;
+    
+    const firmDetails = storage.getFirmDetailsOrDefaults();
+
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.width;
@@ -237,7 +271,7 @@ export const generateDailyRegisterPDF = (date: string, invoices: Invoice[], purc
     
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
-    doc.text(FIRM_DETAILS.name, pageWidth / 2, 22, { align: 'center' });
+    doc.text(firmDetails.name, pageWidth / 2, 22, { align: 'center' });
 
     let finalY = 30;
 

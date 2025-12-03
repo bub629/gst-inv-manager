@@ -12,28 +12,36 @@ const Settings = () => {
     const [confirmNewPassword, setConfirmNewPassword] = useState('');
     const [backupFile, setBackupFile] = useState<File | null>(null);
 
-    useEffect(() => {
-        const data = storage.getFirmDetails();
-        setCurrentUsername(storage.getCurrentUsername());
+    // Default empty structure to ensure no field is undefined
+    const defaultDetails: FirmDetails = {
+        name: "",
+        address: "",
+        city: "",
+        district: "",
+        state: "Odisha",
+        pincode: "",
+        gstin: "",
+        stateCode: "21",
+        contact: "",
+        bankName: "",
+        accountNo: "",
+        ifsc: ""
+    };
 
-        if(!data) {
-             // Default state for new users (Generic/Empty)
-             setDetails({
-                 name: "",
-                 address: "",
-                 city: "",
-                 district: "",
-                 state: "Odisha",
-                 pincode: "",
-                 gstin: "",
-                 stateCode: "21",
-                 contact: "",
-                 bankName: "",
-                 accountNo: "",
-                 ifsc: ""
-             });
-        } else {
-            setDetails(data);
+    useEffect(() => {
+        try {
+            const data = storage.getFirmDetails();
+            setCurrentUsername(storage.getCurrentUsername());
+
+            if (data) {
+                // Merge saved data with default structure to prevent undefined values for new fields
+                setDetails({ ...defaultDetails, ...data });
+            } else {
+                setDetails(defaultDetails);
+            }
+        } catch (e) {
+            console.error("Error loading settings", e);
+            setDetails(defaultDetails);
         }
     }, []);
 
@@ -46,14 +54,24 @@ const Settings = () => {
     };
 
     const handleSave = () => {
-        if(details) {
-            if(!details.name || !details.gstin) {
-                alert("Please enter at least Firm Name and GSTIN.");
-                return;
+        try {
+            if(details) {
+                // Basic Validation
+                if(!details.name.trim()) {
+                    alert("Firm Name is required.");
+                    return;
+                }
+                
+                // Save to storage
+                storage.saveFirmDetails(details);
+                
+                // Success Message
+                alert("Settings Saved Successfully! The app will reload to apply changes.");
+                window.location.reload();
             }
-            storage.saveFirmDetails(details);
-            alert("Settings Saved Successfully! Reloading to apply changes...");
-            window.location.reload();
+        } catch (error) {
+            console.error("Save failed", error);
+            alert("Failed to save settings. Please check your browser storage permissions.");
         }
     };
 
@@ -90,7 +108,7 @@ const Settings = () => {
         }
     };
 
-    if(!details) return <div>Loading...</div>;
+    if(!details) return <div className="p-8 text-center">Loading Settings...</div>;
 
     return (
         <div className="max-w-4xl mx-auto space-y-8 pb-10">
@@ -106,23 +124,23 @@ const Settings = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Firm Name *</label>
-                        <input name="name" placeholder="Enter your Business Name" value={details.name} onChange={handleChange} className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white bg-white text-slate-900" />
+                        <input name="name" placeholder="Enter your Business Name" value={details.name || ''} onChange={handleChange} className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white bg-white text-slate-900" />
                     </div>
                     <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Address</label>
-                        <input name="address" placeholder="Building, Street, Area" value={details.address} onChange={handleChange} className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white bg-white text-slate-900" />
+                        <input name="address" placeholder="Building, Street, Area" value={details.address || ''} onChange={handleChange} className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white bg-white text-slate-900" />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">City</label>
-                        <input name="city" placeholder="City" value={details.city} onChange={handleChange} className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white bg-white text-slate-900" />
+                        <input name="city" placeholder="City" value={details.city || ''} onChange={handleChange} className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white bg-white text-slate-900" />
                     </div>
                      <div>
                         <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">District</label>
-                        <input name="district" placeholder="District" value={details.district} onChange={handleChange} className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white bg-white text-slate-900" />
+                        <input name="district" placeholder="District" value={details.district || ''} onChange={handleChange} className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white bg-white text-slate-900" />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">State</label>
-                         <select name="stateCode" value={details.stateCode} onChange={(e) => {
+                         <select name="stateCode" value={details.stateCode || '21'} onChange={(e) => {
                              const s = INDIAN_STATES.find(st => st.code === e.target.value);
                              setDetails({...details, stateCode: e.target.value, state: s?.name || ''});
                          }} className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white bg-white text-slate-900">
@@ -131,15 +149,15 @@ const Settings = () => {
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Pincode</label>
-                        <input name="pincode" placeholder="000000" value={details.pincode} onChange={handleChange} className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white bg-white text-slate-900" />
+                        <input name="pincode" placeholder="000000" value={details.pincode || ''} onChange={handleChange} className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white bg-white text-slate-900" />
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">GSTIN *</label>
-                        <input name="gstin" placeholder="Enter GSTIN" value={details.gstin} onChange={handleChange} className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white bg-white text-slate-900" />
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">GSTIN</label>
+                        <input name="gstin" placeholder="Enter GSTIN (Optional)" value={details.gstin || ''} onChange={handleChange} className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white bg-white text-slate-900" />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Contact No</label>
-                        <input name="contact" placeholder="Phone Number" value={details.contact} onChange={handleChange} className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white bg-white text-slate-900" />
+                        <input name="contact" placeholder="Phone Number" value={details.contact || ''} onChange={handleChange} className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white bg-white text-slate-900" />
                     </div>
                 </div>
             </div>
@@ -166,7 +184,7 @@ const Settings = () => {
              </div>
 
              <div className="flex justify-end">
-                 <button onClick={handleSave} className="flex items-center px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium shadow-sm">
+                 <button onClick={handleSave} className="flex items-center px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium shadow-sm transition-colors">
                      <Save className="w-5 h-5 mr-2" /> Save Settings
                  </button>
              </div>
