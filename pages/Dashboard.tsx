@@ -52,7 +52,9 @@ const Dashboard: React.FC<DashboardProps> = ({ changeTab }) => {
     setMonthlySales(total);
   }, []);
 
-  const isSetupRequired = firmDetails.name === "Your Firm Name" || !firmDetails.gstin || firmDetails.gstin === "URP";
+  // Only show alert if the name is still the default placeholder.
+  // We ignore GSTIN checks here so optional GSTIN doesn't trigger the alert.
+  const isSetupRequired = firmDetails.name === "Your Firm Name";
 
   return (
     <div className="space-y-6">
@@ -67,8 +69,8 @@ const Dashboard: React.FC<DashboardProps> = ({ changeTab }) => {
                   <div>
                       <h2 className="text-lg font-bold text-amber-500 mb-1">Setup Your Business</h2>
                       <p className="text-sm text-amber-600/80 dark:text-amber-400/80">
-                          It looks like you haven't configured your Firm Name and GST Details yet. 
-                          Please update your settings to generate valid invoices.
+                          It looks like you haven't configured your Firm Name yet. 
+                          Please update your settings to generate professional invoices.
                       </p>
                   </div>
               </div>

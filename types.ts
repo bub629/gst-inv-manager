@@ -1,4 +1,5 @@
 
+
 export interface FirmDetails {
   name: string;
   address: string;
@@ -85,9 +86,11 @@ export interface Invoice {
   billingAddress: string;
   shippingAddress: string;
   placeOfSupply: string;
+  stateCode?: string;
   items: InvoiceItem[];
   subTotal: number;
   freightCharges: number;
+  freightTaxRate?: number; // New field for Freight GST
   loadingCharges: number;
   roundOff: number;
   grandTotal: number;

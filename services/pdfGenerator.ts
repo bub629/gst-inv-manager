@@ -1,4 +1,5 @@
 
+
 import { Invoice, FirmDetails, EWayBill, PurchaseInvoice } from '../types';
 import { storage } from './storage'; // Import storage to get dynamic data
 
@@ -114,41 +115,45 @@ export const generateInvoicePDF = (invoice: Invoice) => {
 
   let finalY = (doc as any).lastAutoTable.finalY + 10;
 
-  // SUMMARY
-  const rightMargin = 14;
-  const valueEndX = pageWidth - rightMargin;
+  // SUMMARY - Fixed Layout Strategy
+  // Amount column ends at PageWidth - 14
+  // Label column ends at PageWidth - 55
+  // This leaves ~41 units for the amount, which is plenty for large numbers, preventing overlap.
+  const valueEndX = pageWidth - 14;
+  const labelEndX = pageWidth - 55;
 
-  // Dynamic Row Adding with Auto-Calculation of Position
   const addSummaryRow = (label: string, value: string, bold = false) => {
     doc.setFont('helvetica', bold ? 'bold' : 'normal');
     
-    // 1. Draw Value first (Right Aligned)
+    // Draw Value (Right Aligned to Margin)
     doc.text(value, valueEndX, finalY, { align: 'right' });
     
-    // 2. Calculate Value Width to position Label correctly
-    const fontSize = doc.getFontSize();
-    const valueWidth = doc.getStringUnitWidth(value) * fontSize / doc.internal.scaleFactor;
-    
-    // 3. Position Label 5 units to the left of the Value's start position
-    const labelX = valueEndX - valueWidth - 5;
-    
-    // 4. Draw Label (Right Aligned relative to the calculated gap)
-    doc.text(label, labelX, finalY, { align: 'right' });
+    // Draw Label (Right Aligned to Fixed Column)
+    doc.text(label, labelEndX, finalY, { align: 'right' });
     
     finalY += 6;
   };
 
   addSummaryRow("Sub Total:", formatCurrency(invoice.subTotal));
-  if (invoice.freightCharges > 0) addSummaryRow("Freight Charges:", formatCurrency(invoice.freightCharges));
+  
+  if (invoice.freightCharges > 0) {
+      const freightTaxText = invoice.freightTaxRate && invoice.freightTaxRate > 0 
+        ? ` (Tax @ ${invoice.freightTaxRate}%)` 
+        : '';
+      addSummaryRow(`Freight Charges${freightTaxText}:`, formatCurrency(invoice.freightCharges));
+  }
+  
   if (invoice.loadingCharges > 0) addSummaryRow("Loading Charges:", formatCurrency(invoice.loadingCharges));
   
-  // Tax Breakup
+  // Tax Breakup (Include Freight Tax)
+  const freightTaxAmt = invoice.freightCharges * ((invoice.freightTaxRate || 0) / 100);
+
   if (invoice.isInterState) {
-    const igstTotal = invoice.items.reduce((acc, item) => acc + item.igstAmount, 0);
+    const igstTotal = invoice.items.reduce((acc, item) => acc + item.igstAmount, 0) + freightTaxAmt;
     addSummaryRow("IGST Total:", formatCurrency(igstTotal));
   } else {
-    const cgstTotal = invoice.items.reduce((acc, item) => acc + item.cgstAmount, 0);
-    const sgstTotal = invoice.items.reduce((acc, item) => acc + item.sgstAmount, 0);
+    const cgstTotal = invoice.items.reduce((acc, item) => acc + item.cgstAmount, 0) + (freightTaxAmt / 2);
+    const sgstTotal = invoice.items.reduce((acc, item) => acc + item.sgstAmount, 0) + (freightTaxAmt / 2);
     addSummaryRow("CGST Total:", formatCurrency(cgstTotal));
     addSummaryRow("SGST Total:", formatCurrency(sgstTotal));
   }
@@ -161,7 +166,7 @@ export const generateInvoicePDF = (invoice: Invoice) => {
   doc.setFontSize(12);
   doc.setTextColor(...primaryColor);
   
-  // GRAND TOTAL - No 'Rs' prefix, just number, dynamic positioning
+  // GRAND TOTAL - No 'Rs' prefix, just number
   addSummaryRow("Grand Total:", formatNumber(invoice.grandTotal), true);
   
   doc.setTextColor(...textColor);

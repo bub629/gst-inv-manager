@@ -1,6 +1,7 @@
 
+
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, Trash2, Save, Download, Sparkles } from 'lucide-react';
+import { Plus, Trash2, Save, Download, Sparkles, ChevronDown } from 'lucide-react';
 import { storage } from '../services/storage';
 import { generateInvoicePDF } from '../services/pdfGenerator';
 import { FIRM_DETAILS, TAX_RATES, INDIAN_STATES } from '../constants';
@@ -50,11 +51,13 @@ const InvoiceGenerator: React.FC<Props> = ({ onSave, editId }) => {
   const [customerDetails, setCustomerDetails] = useState<Partial<Customer>>({});
   const [items, setItems] = useState<InvoiceItem[]>([]);
   const [freight, setFreight] = useState(0);
+  const [freightTaxRate, setFreightTaxRate] = useState(0); // GST % on Freight
   const [loading, setLoading] = useState(0);
   const [originalInvoice, setOriginalInvoice] = useState<Invoice | null>(null);
 
   useEffect(() => {
-    setCustomers(storage.getCustomers());
+    const loadedCustomers = storage.getCustomers();
+    setCustomers(loadedCustomers);
     setProducts(storage.getProducts());
     setFirmDetails(storage.getFirmDetails() || storage.getFirmDetails()); // Fallback logic handled in UI or constants
 
@@ -71,10 +74,12 @@ const InvoiceGenerator: React.FC<Props> = ({ onSave, editId }) => {
                 gstin: found.customerGstin,
                 billingAddress: found.billingAddress,
                 shippingAddress: found.shippingAddress,
-                state: found.placeOfSupply
+                state: found.placeOfSupply,
+                stateCode: found.stateCode || loadedCustomers.find(c => c.id === found.customerId)?.stateCode
             });
             setItems(found.items);
             setFreight(found.freightCharges);
+            setFreightTaxRate(found.freightTaxRate || 0);
             setLoading(found.loadingCharges);
         }
     } else {
@@ -189,8 +194,12 @@ const InvoiceGenerator: React.FC<Props> = ({ onSave, editId }) => {
 
   // Totals Calculation
   const subTotal = items.reduce((acc, i) => acc + i.taxableValue, 0);
-  const taxTotal = items.reduce((acc, i) => acc + i.cgstAmount + i.sgstAmount + i.igstAmount, 0);
-  const totalBeforeRound = subTotal + taxTotal + freight + loading;
+  const itemsTaxTotal = items.reduce((acc, i) => acc + i.cgstAmount + i.sgstAmount + i.igstAmount, 0);
+  
+  // Freight Tax Calculation
+  const freightTaxAmount = freight * (freightTaxRate / 100);
+
+  const totalBeforeRound = subTotal + itemsTaxTotal + freight + freightTaxAmount + loading;
   const grandTotal = Math.round(totalBeforeRound);
   const roundOff = grandTotal - totalBeforeRound;
 
@@ -210,9 +219,11 @@ const InvoiceGenerator: React.FC<Props> = ({ onSave, editId }) => {
       billingAddress: customerDetails.billingAddress || '',
       shippingAddress: customerDetails.shippingAddress || '',
       placeOfSupply: customerDetails.state || '',
+      stateCode: customerDetails.stateCode,
       items,
       subTotal,
       freightCharges: freight,
+      freightTaxRate, // Save the selected tax rate
       loadingCharges: loading,
       roundOff,
       grandTotal,
@@ -253,6 +264,11 @@ const InvoiceGenerator: React.FC<Props> = ({ onSave, editId }) => {
       if(hsn && hsn !== "Error") {
           updateItem(itemId, 'hsnCode', hsn);
       }
+  }
+
+  // Rate helper function
+  const applyPrice = (itemId: string, price: number) => {
+      updateItem(itemId, 'rate', price);
   }
 
   return (
@@ -330,8 +346,8 @@ const InvoiceGenerator: React.FC<Props> = ({ onSave, editId }) => {
                 <th className="px-4 py-2 text-left">Product</th>
                 <th className="px-4 py-2 w-24">HSN</th>
                 <th className="px-4 py-2 w-24">Qty</th>
-                <th className="px-4 py-2 w-32">Rate</th>
-                <th className="px-4 py-2 w-20">Disc %</th>
+                <th className="px-4 py-2 w-36">Rate</th>
+                <th className="px-4 py-2 w-24">Disc %</th>
                 <th className="px-4 py-2 w-24">Tax %</th>
                 <th className="px-4 py-2 w-32 text-right">Total</th>
                 <th className="px-4 py-2 w-10"></th>
@@ -339,81 +355,83 @@ const InvoiceGenerator: React.FC<Props> = ({ onSave, editId }) => {
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
               {items.map((item, idx) => {
-                 const currentProd = products.find(p => p.id === item.productId);
-                 const availableStock = currentProd ? (currentProd.stock || 0) : null;
-                 return (
+                  const product = products.find(p => p.id === item.productId);
+                  return (
                 <tr key={item.id}>
                   <td className="px-4 py-2">
                     <div className="flex flex-col gap-1">
                         <select 
                         value={item.productId}
                         onChange={(e) => updateItem(item.id, 'productId', e.target.value)}
-                        className="w-full p-1 border rounded text-sm dark:bg-slate-700 dark:border-slate-600 bg-white text-slate-900 dark:text-white"
+                        className="w-full p-1 border rounded text-sm bg-white text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white"
                         >
                         <option value="">Custom Item</option>
                         {products.map(p => (
-                            <option key={p.id} value={p.id}>{p.name}</option>
+                            <option key={p.id} value={p.id}>{p.name} (Stock: {p.stock || 0})</option>
                         ))}
                         </select>
                         {!item.productId && (
-                            <input 
-                                placeholder="Item Name"
-                                value={item.productName}
-                                onChange={(e) => updateItem(item.id, 'productName', e.target.value)}
-                                className="w-full p-1 border rounded text-sm mt-1 dark:bg-slate-700 dark:border-slate-600 bg-white text-slate-900 dark:text-white"
-                            />
-                        )}
-                        {availableStock !== null && (
-                            <span className={`text-xs ${availableStock < item.quantity ? 'text-red-500' : 'text-green-600'}`}>
-                                Stock: {availableStock} {item.unit}
-                            </span>
+                            <div className="flex gap-1">
+                                <input 
+                                    placeholder="Item Name"
+                                    value={item.productName}
+                                    onChange={(e) => updateItem(item.id, 'productName', e.target.value)}
+                                    className="w-full p-1 border rounded text-sm mt-1 bg-white text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white"
+                                />
+                                <button onClick={() => handleGeminiSuggest(item.id, item.productName)} title="Suggest HSN" className="mt-1 p-1 bg-purple-100 text-purple-600 rounded">
+                                    <Sparkles className="w-4 h-4" />
+                                </button>
+                            </div>
                         )}
                     </div>
                   </td>
                   <td className="px-4 py-2">
-                     <div className="flex items-center gap-1">
-                        <input 
-                        value={item.hsnCode}
-                        onChange={(e) => updateItem(item.id, 'hsnCode', e.target.value)}
-                        className="w-full p-1 border rounded text-sm dark:bg-slate-700 dark:border-slate-600 bg-white text-slate-900 dark:text-white"
-                        />
-                         {item.productName && !item.hsnCode && (
-                            <button onClick={() => handleGeminiSuggest(item.id, item.productName)} title="Auto-suggest HSN" className="text-purple-500">
-                                <Sparkles className="w-4 h-4" />
-                            </button>
-                        )}
-                     </div>
+                     <input 
+                       value={item.hsnCode}
+                       onChange={(e) => updateItem(item.id, 'hsnCode', e.target.value)}
+                       className="w-full p-1 border rounded text-sm bg-white text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white"
+                     />
                   </td>
                   <td className="px-4 py-2">
                     <input 
                       type="number" 
                       value={item.quantity}
                       onChange={(e) => updateItem(item.id, 'quantity', e.target.value)}
-                      className="w-full p-1 border rounded text-sm dark:bg-slate-700 dark:border-slate-600 bg-white text-slate-900 dark:text-white"
+                      className="w-full p-1 border rounded text-sm bg-white text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white"
                     />
                   </td>
-                  <td className="px-4 py-2">
-                    <div className="flex items-center">
+                  <td className="px-4 py-2 relative">
+                    <div className="flex">
                         <input 
                         type="number" 
                         value={item.rate}
                         onChange={(e) => updateItem(item.id, 'rate', e.target.value)}
-                        className="w-full p-1 border rounded text-sm dark:bg-slate-700 dark:border-slate-600 bg-white text-slate-900 dark:text-white"
+                        className="w-full p-1 border rounded-l text-sm bg-white text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white"
                         />
-                        {currentProd && (
-                            <div className="relative group ml-1">
-                                <button className="p-1 bg-slate-200 dark:bg-slate-600 rounded text-xs">▼</button>
-                                <div className="absolute top-full right-0 z-10 hidden group-hover:block bg-white dark:bg-slate-700 border shadow-lg rounded w-32">
-                                    <div className="p-2 text-xs font-semibold border-b dark:border-slate-600 text-slate-500">Select Price</div>
-                                    <button onClick={() => updateItem(item.id, 'rate', currentProd.salePrice1 || currentProd.price || 0)} className="block w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-600">
-                                        Sale 1: ₹{currentProd.salePrice1 || currentProd.price || 0}
-                                    </button>
-                                    <button onClick={() => updateItem(item.id, 'rate', currentProd.salePrice2 || 0)} className="block w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-600">
-                                        Sale 2: ₹{currentProd.salePrice2 || 0}
-                                    </button>
-                                    <button onClick={() => updateItem(item.id, 'rate', currentProd.salePrice3 || 0)} className="block w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-600">
-                                        Sale 3: ₹{currentProd.salePrice3 || 0}
-                                    </button>
+                        {product && (
+                            <div className="relative group">
+                                <button className="px-1 bg-slate-200 dark:bg-slate-600 border-y border-r border-slate-300 dark:border-slate-500 rounded-r h-full flex items-center">
+                                    <ChevronDown className="w-3 h-3 text-slate-600 dark:text-slate-300" />
+                                </button>
+                                <div className="absolute top-full left-0 z-10 hidden group-hover:block bg-white dark:bg-slate-800 shadow-lg border dark:border-slate-600 rounded min-w-[120px]">
+                                    <div 
+                                        onClick={() => applyPrice(item.id, product.salePrice1 || product.price || 0)} 
+                                        className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer text-xs"
+                                    >
+                                        Sale 1: ₹{product.salePrice1 || product.price || 0}
+                                    </div>
+                                    <div 
+                                        onClick={() => applyPrice(item.id, product.salePrice2 || 0)} 
+                                        className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer text-xs"
+                                    >
+                                        Sale 2: ₹{product.salePrice2 || 0}
+                                    </div>
+                                    <div 
+                                        onClick={() => applyPrice(item.id, product.salePrice3 || 0)} 
+                                        className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer text-xs"
+                                    >
+                                        Sale 3: ₹{product.salePrice3 || 0}
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -424,14 +442,14 @@ const InvoiceGenerator: React.FC<Props> = ({ onSave, editId }) => {
                       type="number" 
                       value={item.discount}
                       onChange={(e) => updateItem(item.id, 'discount', e.target.value)}
-                      className="w-full p-1 border rounded text-sm dark:bg-slate-700 dark:border-slate-600 bg-white text-slate-900 dark:text-white"
+                      className="w-full p-1 border rounded text-sm bg-white text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white"
                     />
                   </td>
                   <td className="px-4 py-2">
                     <select 
                       value={item.taxRate}
                       onChange={(e) => updateItem(item.id, 'taxRate', e.target.value)}
-                      className="w-full p-1 border rounded text-sm dark:bg-slate-700 dark:border-slate-600 bg-white text-slate-900 dark:text-white"
+                      className="w-full p-1 border rounded text-sm bg-white text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white"
                     >
                       {TAX_RATES.map(r => <option key={r} value={r}>{r}%</option>)}
                     </select>
@@ -445,8 +463,7 @@ const InvoiceGenerator: React.FC<Props> = ({ onSave, editId }) => {
                     </button>
                   </td>
                 </tr>
-              );
-              })}
+              )}})}
             </tbody>
           </table>
         </div>
@@ -455,67 +472,92 @@ const InvoiceGenerator: React.FC<Props> = ({ onSave, editId }) => {
           onClick={addItem}
           className="mt-4 flex items-center text-primary-600 hover:text-primary-700 font-medium"
         >
-          <Plus className="w-4 h-4 mr-2" /> Add Line Item
+          <Plus className="w-4 h-4 mr-2" /> Add Item
         </button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm p-6">
-            <h3 className="font-semibold text-slate-700 dark:text-white mb-2">Additional Charges</h3>
-            <div className="flex justify-between items-center mb-2">
-                <span className="text-sm text-slate-600 dark:text-slate-300">Freight Charges</span>
-                <input 
-                    type="number" 
-                    value={freight}
-                    onChange={(e) => setFreight(Number(e.target.value))}
-                    className="w-32 p-1 border rounded text-right dark:bg-slate-700 dark:border-slate-600 bg-white text-slate-900 dark:text-white"
-                />
-            </div>
-             <div className="flex justify-between items-center">
-                <span className="text-sm text-slate-600 dark:text-slate-300">Loading Charges</span>
-                <input 
-                    type="number" 
-                    value={loading}
-                    onChange={(e) => setLoading(Number(e.target.value))}
-                    className="w-32 p-1 border rounded text-right dark:bg-slate-700 dark:border-slate-600 bg-white text-slate-900 dark:text-white"
-                />
-            </div>
+           <h3 className="text-md font-semibold mb-3 text-slate-800 dark:text-white">Terms & Notes</h3>
+           <textarea 
+             className="w-full p-2 border rounded-md h-32 bg-white text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white" 
+             placeholder="Enter terms and conditions..."
+           ></textarea>
         </div>
-
+        
         <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm p-6">
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between text-slate-600 dark:text-slate-400">
+          <div className="space-y-3">
+            <div className="flex justify-between text-slate-600 dark:text-slate-300">
               <span>Sub Total</span>
               <span>₹{subTotal.toFixed(2)}</span>
             </div>
-            <div className="flex justify-between text-slate-600 dark:text-slate-400">
-              <span>Tax ({isInterState ? 'IGST' : 'CGST+SGST'})</span>
-              <span>₹{taxTotal.toFixed(2)}</span>
+            
+            <div className="flex items-center justify-between text-slate-600 dark:text-slate-300 gap-2">
+              <span className="whitespace-nowrap">Freight Charges</span>
+              <div className="flex gap-2 items-center w-1/2">
+                <input 
+                  type="number" 
+                  value={freight}
+                  onChange={(e) => setFreight(Number(e.target.value))}
+                  className="w-full p-1 border rounded text-right bg-white text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white"
+                  placeholder="Amount"
+                />
+                <select 
+                    value={freightTaxRate}
+                    onChange={(e) => setFreightTaxRate(Number(e.target.value))}
+                    className="w-20 p-1 border rounded text-sm bg-white text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white"
+                    title="Freight GST Rate"
+                >
+                    <option value="0">0%</option>
+                    <option value="5">5%</option>
+                    <option value="12">12%</option>
+                    <option value="18">18%</option>
+                </select>
+              </div>
             </div>
-            {(freight > 0 || loading > 0) && (
-                <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                <span>Other Charges</span>
-                <span>₹{(freight + loading).toFixed(2)}</span>
-                </div>
-            )}
-            <div className="flex justify-between text-slate-600 dark:text-slate-400">
+
+            <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
+              <span>Loading Charges</span>
+              <input 
+                type="number" 
+                value={loading}
+                onChange={(e) => setLoading(Number(e.target.value))}
+                className="w-32 p-1 border rounded text-right bg-white text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white"
+              />
+            </div>
+
+            <div className="border-t dark:border-slate-700 my-2 pt-2">
+                {isInterState ? (
+                     <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                        <span>IGST ({freightTaxRate > 0 ? 'Includes Freight Tax' : 'Total'})</span>
+                        <span>₹{(items.reduce((acc, i) => acc + i.igstAmount, 0) + (freight * freightTaxRate / 100)).toFixed(2)}</span>
+                    </div>
+                ) : (
+                    <>
+                    <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                        <span>CGST</span>
+                        <span>₹{(items.reduce((acc, i) => acc + i.cgstAmount, 0) + (freight * freightTaxRate / 200)).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                        <span>SGST</span>
+                        <span>₹{(items.reduce((acc, i) => acc + i.sgstAmount, 0) + (freight * freightTaxRate / 200)).toFixed(2)}</span>
+                    </div>
+                    </>
+                )}
+            </div>
+
+            <div className="flex justify-between text-slate-600 dark:text-slate-300">
               <span>Round Off</span>
               <span>{roundOff > 0 ? '+' : ''}{roundOff.toFixed(2)}</span>
             </div>
-            
-            {/* Grand Total - Adjusted for visibility */}
-            <div className="border-t border-slate-200 dark:border-slate-600 pt-4 mt-2">
-                <div className="flex justify-between items-center">
-                    <span className="font-bold text-xl text-slate-800 dark:text-white">Grand Total</span>
-                    <span className="font-bold text-2xl text-primary-600 dark:text-primary-400">
-                        ₹{grandTotal.toLocaleString('en-IN')}
-                    </span>
-                </div>
-                <div className="text-right text-xs text-slate-500 dark:text-slate-400 mt-1 italic bg-slate-50 dark:bg-slate-700/50 p-2 rounded">
-                    {numToWords(grandTotal)}
-                </div>
-            </div>
 
+            <div className="flex justify-between text-xl font-bold text-slate-800 dark:text-white pt-3 border-t-2 border-slate-200 dark:border-slate-600">
+              <span>Grand Total</span>
+              <span>₹{grandTotal.toLocaleString('en-IN')}</span>
+            </div>
+            <div className="text-xs text-slate-500 text-right italic">
+                {numToWords(grandTotal)}
+            </div>
           </div>
         </div>
       </div>

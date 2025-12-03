@@ -103,6 +103,17 @@ function App() {
       setActiveTab('purchase-entry');
   };
 
+  // Function to handle completion of settings (Save -> Continue)
+  const handleSettingsComplete = () => {
+      // 1. Refresh Firm Name immediately from storage
+      const details = storage.getFirmDetails();
+      if(details && details.name && details.name !== "Your Firm Name") {
+          setFirmName(details.name);
+      }
+      // 2. Switch to Dashboard
+      setActiveTab('dashboard');
+  };
+
   // Reset editId when switching to list or other tabs
   const changeTab = (tab: string) => {
       if(tab !== 'create-invoice' && tab !== 'purchase-entry') {
@@ -247,7 +258,7 @@ function App() {
           {activeTab === 'reports' && <Reports />}
           
           {/* System */}
-          {activeTab === 'settings' && <Settings />}
+          {activeTab === 'settings' && <Settings onComplete={handleSettingsComplete} />}
         </main>
       </div>
     </div>
