@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Trash2, Save, Download, Sparkles, ChevronDown } from 'lucide-react';
 import { storage } from '../services/storage';
@@ -8,8 +6,7 @@ import { FIRM_DETAILS, TAX_RATES, INDIAN_STATES } from '../constants';
 import { Invoice, InvoiceItem, Customer, Product, FirmDetails } from '../types';
 import { suggestHSN } from '../services/geminiService';
 
-// Utility for Numbers to Words (Simplified for Demo)
-// Expanded logic for Indian Numbering System
+// Utility for Numbers to Words
 const numToWords = (n: number) => {
     const a = [
         '', 'One ', 'Two ', 'Three ', 'Four ', 'Five ', 'Six ', 'Seven ', 'Eight ', 'Nine ', 'Ten ', 'Eleven ', 'Twelve ', 'Thirteen ', 'Fourteen ', 'Fifteen ', 'Sixteen ', 'Seventeen ', 'Eighteen ', 'Nineteen '
@@ -59,7 +56,7 @@ const InvoiceGenerator: React.FC<Props> = ({ onSave, editId }) => {
     const loadedCustomers = storage.getCustomers();
     setCustomers(loadedCustomers);
     setProducts(storage.getProducts());
-    setFirmDetails(storage.getFirmDetails() || storage.getFirmDetails()); // Fallback logic handled in UI or constants
+    setFirmDetails(storage.getFirmDetails() || storage.getFirmDetails());
 
     if(editId) {
         const invs = storage.getInvoices();
@@ -87,8 +84,6 @@ const InvoiceGenerator: React.FC<Props> = ({ onSave, editId }) => {
     }
   }, [editId]);
 
-  // Derived State
-  // Use stored firm details or default constant
   const currentFirmStateCode = firmDetails?.stateCode || FIRM_DETAILS.stateCode;
   const isInterState = customerDetails.stateCode ? customerDetails.stateCode !== currentFirmStateCode : false;
 
@@ -135,12 +130,10 @@ const InvoiceGenerator: React.FC<Props> = ({ onSave, editId }) => {
 
         let updatedItem = { ...item, [field]: val };
         
-        // Auto-fill product details
         if (field === 'productId') {
           const prod = products.find(p => p.id === value);
           if (prod) {
             updatedItem.productName = prod.name;
-            // Default to Sale Price 1, fallbacks to price or 0
             updatedItem.rate = prod.salePrice1 || prod.price || 0;
             updatedItem.hsnCode = prod.hsnCode;
             updatedItem.taxRate = prod.taxRate;
@@ -148,7 +141,6 @@ const InvoiceGenerator: React.FC<Props> = ({ onSave, editId }) => {
           }
         }
         
-        // Recalculate Logic
         const quantity = Number(updatedItem.quantity);
         const rate = Number(updatedItem.rate);
         const discount = Number(updatedItem.discount);
@@ -180,7 +172,6 @@ const InvoiceGenerator: React.FC<Props> = ({ onSave, editId }) => {
     setItems(newItems);
   };
 
-  // Recalculate totals when state/type changes
   useEffect(() => {
     setItems(prev => prev.map(item => {
       const taxAmount = item.taxableValue * (item.taxRate / 100);
@@ -192,11 +183,9 @@ const InvoiceGenerator: React.FC<Props> = ({ onSave, editId }) => {
     }));
   }, [isInterState]);
 
-  // Totals Calculation
   const subTotal = items.reduce((acc, i) => acc + i.taxableValue, 0);
   const itemsTaxTotal = items.reduce((acc, i) => acc + i.cgstAmount + i.sgstAmount + i.igstAmount, 0);
   
-  // Freight Tax Calculation
   const freightTaxAmount = freight * (freightTaxRate / 100);
 
   const totalBeforeRound = subTotal + itemsTaxTotal + freight + freightTaxAmount + loading;
@@ -223,21 +212,19 @@ const InvoiceGenerator: React.FC<Props> = ({ onSave, editId }) => {
       items,
       subTotal,
       freightCharges: freight,
-      freightTaxRate, // Save the selected tax rate
+      freightTaxRate,
       loadingCharges: loading,
       roundOff,
       grandTotal,
       totalInWords: numToWords(grandTotal),
       status: finalize ? 'Generated' : 'Draft',
       isInterState,
-      stockAdjusted: originalInvoice?.stockAdjusted || finalize // Keep true if already adjusted
+      stockAdjusted: originalInvoice?.stockAdjusted || finalize
     };
 
     storage.saveInvoice(invoice);
 
-    // Stock Management Logic
     if (finalize && !originalInvoice?.stockAdjusted) {
-        // First time generating: Deduct stock
         items.forEach(item => {
             if(item.productId) {
                 storage.updateProductStock(item.productId, -Number(item.quantity));
@@ -245,13 +232,11 @@ const InvoiceGenerator: React.FC<Props> = ({ onSave, editId }) => {
         });
         generateInvoicePDF(invoice);
     } else if (finalize && originalInvoice?.stockAdjusted) {
-         // Already generated, but might have changed quantities.
-         // Simple strategy: Reverse old stock, Apply new stock.
          originalInvoice.items.forEach(item => {
-             if(item.productId) storage.updateProductStock(item.productId, Number(item.quantity)); // Add back old
+             if(item.productId) storage.updateProductStock(item.productId, Number(item.quantity));
          });
          items.forEach(item => {
-             if(item.productId) storage.updateProductStock(item.productId, -Number(item.quantity)); // Deduct new
+             if(item.productId) storage.updateProductStock(item.productId, -Number(item.quantity));
          });
          generateInvoicePDF(invoice);
     }
@@ -266,7 +251,6 @@ const InvoiceGenerator: React.FC<Props> = ({ onSave, editId }) => {
       }
   }
 
-  // Rate helper function
   const applyPrice = (itemId: string, price: number) => {
       updateItem(itemId, 'rate', price);
   }

@@ -397,6 +397,9 @@ const QuotationGenerator: React.FC<Props> = ({ onSave, editId }) => {
             </div>
             <div className="flex justify-between text-slate-600 dark:text-slate-300"><span>Round Off</span><span>{roundOff > 0 ? '+' : ''}{roundOff.toFixed(2)}</span></div>
             <div className="flex justify-between text-xl font-bold text-slate-800 dark:text-white pt-3 border-t-2 border-slate-200 dark:border-slate-600"><span>Grand Total</span><span>₹{grandTotal.toLocaleString('en-IN')}</span></div>
+            <div className="text-xs text-slate-500 text-right italic">
+                {numToWords(grandTotal)}
+            </div>
         </div>
       </div>
     </div>
