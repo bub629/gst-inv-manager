@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useEffect } from 'react';
 import { 
   LayoutDashboard, 
@@ -37,10 +38,14 @@ import Login from './pages/Login';
 import Reports from './pages/Reports';
 import VoucherEntry from './pages/VoucherEntry';
 import Ledger from './pages/Ledger';
+import QuotationGenerator from './pages/QuotationGenerator';
+import QuotationList from './pages/QuotationList';
+import TermsAndConditions from './pages/TermsAndConditions';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState('');
+  const [isTermsAccepted, setIsTermsAccepted] = useState(false); // New State
   const [activeTab, setActiveTab] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(true); // Default to Dark Mode
@@ -51,8 +56,16 @@ function App() {
   useEffect(() => {
     // Check Auth
     if (storage.isAuthenticated()) {
+      const user = storage.getCurrentUsername();
       setIsAuthenticated(true);
-      setCurrentUser(storage.getCurrentUsername());
+      setCurrentUser(user);
+      
+      // Check Terms Acceptance
+      if (storage.hasAcceptedTerms(user)) {
+          setIsTermsAccepted(true);
+      } else {
+          setIsTermsAccepted(false);
+      }
     }
 
     // Check Theme
@@ -70,13 +83,26 @@ function App() {
   }, [darkMode]);
 
   const handleLogin = () => {
+    const user = storage.getCurrentUsername();
     setIsAuthenticated(true);
-    setCurrentUser(storage.getCurrentUsername());
+    setCurrentUser(user);
+    // Check Terms on Login
+    if (storage.hasAcceptedTerms(user)) {
+        setIsTermsAccepted(true);
+    } else {
+        setIsTermsAccepted(false);
+    }
+  };
+
+  const handleAcceptTerms = () => {
+      storage.acceptTerms(currentUser);
+      setIsTermsAccepted(true);
   };
 
   const handleLogout = () => {
     storage.logout();
     setIsAuthenticated(false);
+    setIsTermsAccepted(false);
     setActiveTab('dashboard');
     setHistory([]);
   };
@@ -112,8 +138,14 @@ function App() {
 
   const toggleTheme = () => setDarkMode(!darkMode);
 
+  // 1. Login Screen
   if (!isAuthenticated) {
     return <Login onLogin={handleLogin} />;
+  }
+
+  // 2. Terms & Conditions Screen (Blocks Dashboard until accepted)
+  if (!isTermsAccepted) {
+      return <TermsAndConditions onAccept={handleAcceptTerms} />;
   }
 
   const renderContent = () => {
@@ -121,6 +153,8 @@ function App() {
       case 'dashboard': return <Dashboard changeTab={changeTab} />;
       case 'create-invoice': return <InvoiceGenerator onSave={() => changeTab('invoice-list')} editId={editId} />;
       case 'invoice-list': return <InvoiceList onEdit={(id) => changeTab('create-invoice', id)} />;
+      case 'create-quotation': return <QuotationGenerator onSave={() => changeTab('quotation-list')} editId={editId} />;
+      case 'quotation-list': return <QuotationList onEdit={(id) => changeTab('create-quotation', id)} />;
       case 'eway-bill': return <EWayBillGenerator />;
       case 'customers': return <Masters type="customers" />;
       case 'suppliers': return <Masters type="suppliers" />;
@@ -199,6 +233,8 @@ function App() {
           <NavGroup title="Sales">
             <NavItem id="create-invoice" icon={FileText} label="New Invoice" />
             <NavItem id="invoice-list" icon={ClipboardList} label="Invoice History" />
+            <NavItem id="create-quotation" icon={FileText} label="New Quotation" />
+            <NavItem id="quotation-list" icon={ClipboardList} label="Quotation History" />
             <NavItem id="eway-bill" icon={Truck} label="E-Way Bill" />
             <NavItem id="customers" icon={Users} label="Customers" />
           </NavGroup>

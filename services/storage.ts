@@ -1,10 +1,11 @@
 
 
-import { Invoice, Customer, Product, EWayBill, Supplier, PurchaseInvoice, FirmDetails, UserCredential, Voucher, LedgerEntry } from '../types';
+import { Invoice, Customer, Product, EWayBill, Supplier, PurchaseInvoice, FirmDetails, UserCredential, Voucher, LedgerEntry, Quotation } from '../types';
 import { FIRM_DETAILS as DEFAULT_FIRM_DETAILS } from '../constants';
 
 const KEYS = {
   INVOICES: 'sahu_invoices',
+  QUOTATIONS: 'sahu_quotations',
   CUSTOMERS: 'sahu_customers',
   PRODUCTS: 'sahu_products',
   SUPPLIERS: 'sahu_suppliers',
@@ -51,7 +52,7 @@ export const storage = {
     set(KEYS.CUSTOMERS, customers);
   },
   deleteCustomer: (id: string) => {
-    const customers = get(KEYS.CUSTOMERS).filter((c: Customer) => c.id !== id);
+    const customers = get(KEYS.CUSTOMERS).filter((c: Customer) => String(c.id) !== String(id));
     set(KEYS.CUSTOMERS, customers);
   },
 
@@ -65,7 +66,7 @@ export const storage = {
     set(KEYS.SUPPLIERS, suppliers);
   },
   deleteSupplier: (id: string) => {
-    const suppliers = get(KEYS.SUPPLIERS).filter((s: Supplier) => s.id !== id);
+    const suppliers = get(KEYS.SUPPLIERS).filter((s: Supplier) => String(s.id) !== String(id));
     set(KEYS.SUPPLIERS, suppliers);
   },
 
@@ -83,7 +84,7 @@ export const storage = {
     set(KEYS.PRODUCTS, products);
   },
   deleteProduct: (id: string) => {
-    const products = get(KEYS.PRODUCTS).filter((p: Product) => p.id !== id);
+    const products = get(KEYS.PRODUCTS).filter((p: Product) => String(p.id) !== String(id));
     set(KEYS.PRODUCTS, products);
   },
   updateProductStock: (productId: string, quantityChange: number) => {
@@ -111,7 +112,7 @@ export const storage = {
   },
   deleteInvoice: (id: string) => {
     const invoices = get(KEYS.INVOICES);
-    const invoiceToDelete = invoices.find((i: Invoice) => i.id === id);
+    const invoiceToDelete = invoices.find((i: Invoice) => String(i.id) === String(id));
     
     if (invoiceToDelete && invoiceToDelete.stockAdjusted) {
         invoiceToDelete.items.forEach((item: any) => {
@@ -121,8 +122,26 @@ export const storage = {
         });
     }
 
-    const newInvoices = invoices.filter((i: Invoice) => i.id !== id);
+    const newInvoices = invoices.filter((i: Invoice) => String(i.id) !== String(id));
     set(KEYS.INVOICES, newInvoices);
+  },
+
+  // --- QUOTATIONS ---
+  getNextQuotationNumber: () => {
+    const quotations = get(KEYS.QUOTATIONS);
+    return `QTN-${new Date().getFullYear()}-${(quotations.length + 1).toString().padStart(4, '0')}`;
+  },
+  getQuotations: (): Quotation[] => get(KEYS.QUOTATIONS).sort((a: Quotation, b: Quotation) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+  saveQuotation: (quotation: Quotation) => {
+    const quotations = get(KEYS.QUOTATIONS);
+    const index = quotations.findIndex((q: Quotation) => q.id === quotation.id);
+    if (index >= 0) quotations[index] = quotation;
+    else quotations.push(quotation);
+    set(KEYS.QUOTATIONS, quotations);
+  },
+  deleteQuotation: (id: string) => {
+    const quotations = get(KEYS.QUOTATIONS).filter((q: Quotation) => String(q.id) !== String(id));
+    set(KEYS.QUOTATIONS, quotations);
   },
 
   // --- PURCHASES ---
@@ -136,7 +155,7 @@ export const storage = {
   },
   deletePurchase: (id: string) => {
       const purchases = get(KEYS.PURCHASES);
-      const purchaseToDelete = purchases.find((p: PurchaseInvoice) => p.id === id);
+      const purchaseToDelete = purchases.find((p: PurchaseInvoice) => String(p.id) === String(id));
 
       if(purchaseToDelete && purchaseToDelete.stockAdjusted) {
           purchaseToDelete.items.forEach((item: any) => {
@@ -146,7 +165,7 @@ export const storage = {
           });
       }
 
-      const newPurchases = purchases.filter((p: PurchaseInvoice) => p.id !== id);
+      const newPurchases = purchases.filter((p: PurchaseInvoice) => String(p.id) !== String(id));
       set(KEYS.PURCHASES, newPurchases);
   },
 
@@ -160,7 +179,7 @@ export const storage = {
       set(KEYS.VOUCHERS, vouchers);
   },
   deleteVoucher: (id: string) => {
-      const vouchers = get(KEYS.VOUCHERS).filter((v: Voucher) => v.id !== id);
+      const vouchers = get(KEYS.VOUCHERS).filter((v: Voucher) => String(v.id) !== String(id));
       set(KEYS.VOUCHERS, vouchers);
   },
 
@@ -250,11 +269,12 @@ export const storage = {
   backupData: () => {
       const data = {
           invoices: get(KEYS.INVOICES),
+          quotations: get(KEYS.QUOTATIONS),
           customers: get(KEYS.CUSTOMERS),
           products: get(KEYS.PRODUCTS),
           suppliers: get(KEYS.SUPPLIERS),
           purchases: get(KEYS.PURCHASES),
-          vouchers: get(KEYS.VOUCHERS), // Include Vouchers
+          vouchers: get(KEYS.VOUCHERS), 
           users: get(KEYS.USERS),
           firmDetails: localStorage.getItem(KEYS.FIRM_DETAILS) ? JSON.parse(localStorage.getItem(KEYS.FIRM_DETAILS)!) : null
       };
@@ -262,7 +282,7 @@ export const storage = {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `SahuBiofuels_Backup_${new Date().toISOString().split('T')[0]}.json`;
+      a.download = `GST_Manager_Backup_${new Date().toISOString().split('T')[0]}.json`;
       a.click();
   },
   restoreData: (file: File) => {
@@ -272,11 +292,12 @@ export const storage = {
               try {
                   const data = JSON.parse(e.target?.result as string);
                   if(data.invoices) set(KEYS.INVOICES, data.invoices);
+                  if(data.quotations) set(KEYS.QUOTATIONS, data.quotations);
                   if(data.customers) set(KEYS.CUSTOMERS, data.customers);
                   if(data.products) set(KEYS.PRODUCTS, data.products);
                   if(data.suppliers) set(KEYS.SUPPLIERS, data.suppliers);
                   if(data.purchases) set(KEYS.PURCHASES, data.purchases);
-                  if(data.vouchers) set(KEYS.VOUCHERS, data.vouchers); // Restore Vouchers
+                  if(data.vouchers) set(KEYS.VOUCHERS, data.vouchers);
                   if(data.users) set(KEYS.USERS, data.users);
                   if(data.firmDetails) localStorage.setItem(KEYS.FIRM_DETAILS, JSON.stringify(data.firmDetails));
                   resolve(true);
@@ -307,7 +328,8 @@ export const storage = {
           username,
           password,
           role: users.length === 0 ? 'admin' : 'user',
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
+          termsAccepted: false // Default false
       };
       users.push(newUser);
       set(KEYS.USERS, users);
@@ -332,6 +354,23 @@ export const storage = {
 
   getCurrentUsername: () => {
       return localStorage.getItem(KEYS.AUTH_SESSION) || 'Guest';
+  },
+
+  // --- TERMS & CONDITIONS LOGIC ---
+  hasAcceptedTerms: (username: string): boolean => {
+      const users = get(KEYS.USERS);
+      const user = users.find((u: UserCredential) => u.username.toLowerCase() === username.toLowerCase());
+      // If user exists and flag is true, return true. Otherwise false.
+      return user && user.termsAccepted === true;
+  },
+
+  acceptTerms: (username: string) => {
+      const users = get(KEYS.USERS);
+      const index = users.findIndex((u: UserCredential) => u.username.toLowerCase() === username.toLowerCase());
+      if (index >= 0) {
+          users[index].termsAccepted = true;
+          set(KEYS.USERS, users);
+      }
   },
 
   updateCurrentUserPassword: (newPassword: string) => {

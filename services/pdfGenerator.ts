@@ -1,6 +1,6 @@
 
 
-import { Invoice, FirmDetails, EWayBill, PurchaseInvoice, LedgerEntry } from '../types';
+import { Invoice, FirmDetails, EWayBill, PurchaseInvoice, LedgerEntry, Quotation } from '../types';
 import { storage } from './storage'; // Import storage to get dynamic data
 
 const formatCurrency = (amount: number) => {
@@ -189,6 +189,142 @@ export const generateInvoicePDF = (invoice: Invoice) => {
   doc.text("Authorized Signatory", pageWidth - 14, bankY + 25, { align: 'right' });
 
   doc.save(`Invoice_${invoice.invoiceNo}.pdf`);
+};
+
+export const generateQuotationPDF = (quotation: Quotation) => {
+  if (!window.jspdf) return;
+
+  const firmDetails = storage.getFirmDetailsOrDefaults();
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const pageWidth = doc.internal.pageSize.width;
+  
+  const primaryColor = [37, 99, 235]; // Blue-600 for Quotation
+  const textColor = [30, 41, 59];
+
+  const centerText = (text: string, y: number, size: number = 10, font: string = 'helvetica', style: string = 'normal') => {
+    doc.setFontSize(size);
+    doc.setFont(font, style);
+    const textWidth = doc.getStringUnitWidth(text) * size / doc.internal.scaleFactor;
+    const x = (pageWidth - textWidth) / 2;
+    doc.text(text, x, y);
+  };
+
+  doc.setTextColor(...primaryColor);
+  centerText("QUOTATION / ESTIMATE", 15, 16, 'helvetica', 'bold');
+  
+  doc.setTextColor(...textColor);
+  centerText(firmDetails.name, 25, 14, 'helvetica', 'bold');
+  centerText(firmDetails.address, 31, 10);
+  centerText(`${firmDetails.city}, ${firmDetails.state} - ${firmDetails.pincode}`, 36, 10);
+  centerText(`GSTIN: ${firmDetails.gstin} | Contact: ${firmDetails.contact}`, 41, 10);
+
+  doc.setDrawColor(200, 200, 200);
+  doc.line(10, 45, pageWidth - 10, 45);
+
+  // DETAILS
+  doc.setFontSize(10);
+  
+  // Left Side (To)
+  doc.setFont('helvetica', 'bold');
+  doc.text("Quotation For:", 14, 52);
+  doc.setFont('helvetica', 'normal');
+  doc.text(quotation.customerName, 14, 58);
+  doc.text(quotation.billingAddress.substring(0, 35) + "...", 14, 64);
+  doc.text(`GSTIN: ${quotation.customerGstin}`, 14, 70);
+
+  // Right Side (Info)
+  const rightColX = pageWidth - 70;
+  doc.setFont('helvetica', 'bold');
+  doc.text("Estimate Details:", rightColX, 52);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Quotation No: ${quotation.quotationNo}`, rightColX, 58);
+  doc.text(`Date: ${quotation.date}`, rightColX, 64);
+
+  // TABLE
+  const tableColumn = ["#", "Item", "HSN", "Qty", "Rate", "Disc %", "Taxable", "Tax Amt", "Total"];
+  const tableRows = [];
+
+  quotation.items.forEach((item, index) => {
+    const taxAmt = item.cgstAmount + item.sgstAmount + item.igstAmount;
+    const rowData = [
+      index + 1,
+      item.productName,
+      item.hsnCode,
+      `${item.quantity} ${item.unit}`,
+      item.rate.toFixed(2),
+      item.discount > 0 ? `${item.discount}%` : '-',
+      item.taxableValue.toFixed(2),
+      taxAmt.toFixed(2),
+      item.totalAmount.toFixed(2)
+    ];
+    tableRows.push(rowData);
+  });
+
+  doc.autoTable({
+    head: [tableColumn],
+    body: tableRows,
+    startY: 80,
+    theme: 'grid',
+    headStyles: { fillColor: primaryColor, textColor: [255, 255, 255] },
+    styles: { fontSize: 9, cellPadding: 2 },
+    columnStyles: {
+      0: { cellWidth: 10 },
+      1: { cellWidth: 'auto' },
+      8: { halign: 'right' }
+    }
+  });
+
+  let finalY = (doc as any).lastAutoTable.finalY + 10;
+  const valueEndX = pageWidth - 14;
+  const labelEndX = pageWidth - 55;
+
+  const addSummaryRow = (label: string, value: string, bold = false) => {
+    doc.setFont('helvetica', bold ? 'bold' : 'normal');
+    doc.text(value, valueEndX, finalY, { align: 'right' });
+    doc.text(label, labelEndX, finalY, { align: 'right' });
+    finalY += 6;
+  };
+
+  addSummaryRow("Sub Total:", formatCurrency(quotation.subTotal));
+  
+  if (quotation.freightCharges > 0) addSummaryRow("Freight Charges:", formatCurrency(quotation.freightCharges));
+  if (quotation.loadingCharges > 0) addSummaryRow("Loading Charges:", formatCurrency(quotation.loadingCharges));
+
+  // Tax Logic
+  const freightTaxAmt = quotation.freightCharges * ((quotation.freightTaxRate || 0) / 100);
+  if (quotation.isInterState) {
+    const igstTotal = quotation.items.reduce((acc, item) => acc + item.igstAmount, 0) + freightTaxAmt;
+    addSummaryRow("IGST Total:", formatCurrency(igstTotal));
+  } else {
+    const cgstTotal = quotation.items.reduce((acc, item) => acc + item.cgstAmount, 0) + (freightTaxAmt / 2);
+    const sgstTotal = quotation.items.reduce((acc, item) => acc + item.sgstAmount, 0) + (freightTaxAmt / 2);
+    addSummaryRow("CGST Total:", formatCurrency(cgstTotal));
+    addSummaryRow("SGST Total:", formatCurrency(sgstTotal));
+  }
+
+  addSummaryRow("Round Off:", formatCurrency(quotation.roundOff));
+  
+  doc.setDrawColor(200, 200, 200);
+  doc.line(pageWidth - 80, finalY - 4, pageWidth - 10, finalY - 4);
+  
+  doc.setFontSize(12);
+  doc.setTextColor(...primaryColor);
+  addSummaryRow("Grand Total:", formatNumber(quotation.grandTotal), true);
+  doc.setTextColor(...textColor);
+
+  doc.setFontSize(10);
+  doc.text("Amount in Words:", 14, finalY + 5);
+  doc.setFont('helvetica', 'italic');
+  doc.text(quotation.totalInWords, 14, finalY + 11, { maxWidth: 100 });
+
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  doc.text("This is a computer generated quotation.", 14, finalY + 25);
+  
+  doc.text(`For ${firmDetails.name}`, pageWidth - 14, finalY + 25, { align: 'right' });
+
+  doc.save(`Quotation_${quotation.quotationNo}.pdf`);
 };
 
 export const generateEWayBillPDF = (bill: EWayBill, passedFirmDetails?: FirmDetails) => {

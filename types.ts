@@ -20,6 +20,7 @@ export interface UserCredential {
   password: string;
   role: 'admin' | 'user';
   createdAt: string;
+  termsAccepted?: boolean; // New flag to track T&C acceptance
 }
 
 export interface Customer {
@@ -98,6 +99,28 @@ export interface Invoice {
   status: 'Draft' | 'Generated' | 'Paid';
   isInterState: boolean;
   stockAdjusted?: boolean;
+}
+
+export interface Quotation {
+  id: string;
+  quotationNo: string;
+  date: string;
+  customerId: string;
+  customerName: string;
+  customerGstin: string;
+  billingAddress: string;
+  shippingAddress: string;
+  placeOfSupply: string;
+  stateCode?: string;
+  items: InvoiceItem[];
+  subTotal: number;
+  freightCharges: number;
+  freightTaxRate?: number;
+  loadingCharges: number;
+  roundOff: number;
+  grandTotal: number;
+  totalInWords: string;
+  isInterState: boolean;
 }
 
 export interface PurchaseInvoice {
